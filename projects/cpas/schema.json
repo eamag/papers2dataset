@@ -1,0 +1,157 @@
+{
+    "type": "object",
+    "properties": {
+        "cpa_compositions": {
+            "type": "array",
+            "description": "List of cryoprotectant compositions, where each composition contains chemical definitions and a list of experimental outcomes under varying conditions.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "mix_name": {
+                        "type": "string",
+                        "description": "ID for the composition (e.g. 'Binary DMSO/GLY')."
+                    },
+                    "tot_conc": {
+                        "type": "number",
+                        "description": "Total solute concentration (mol/kg)."
+                    },
+                    "comps": {
+                        "type": "array",
+                        "description": "Chemical agents defined once for this mixture.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "smiles": {
+                                    "type": "string"
+                                },
+                                "mw": {
+                                    "type": "number"
+                                },
+                                "logp": {
+                                    "type": "number"
+                                },
+                                "hbd": {
+                                    "type": "integer"
+                                },
+                                "hba": {
+                                    "type": "integer"
+                                },
+                                "tpsa": {
+                                    "type": "number"
+                                },
+                                "conc": {
+                                    "type": "number"
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "enum": [
+                                        "M",
+                                        "mol/kg",
+                                        "% v/v",
+                                        "% w/v"
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "smiles",
+                                "conc"
+                            ]
+                        }
+                    },
+                    "exps": {
+                        "type": "array",
+                        "description": "Experimental outcomes for this mixture under different environments.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "conds": {
+                                    "type": "object",
+                                    "properties": {
+                                        "temp_c": {
+                                            "type": "number"
+                                        },
+                                        "time_min": {
+                                            "type": "number"
+                                        },
+                                        "cell": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "temp_c",
+                                        "time_min"
+                                    ]
+                                },
+                                "viab": {
+                                    "type": "object",
+                                    "description": "Post-thaw/exposure outcome.",
+                                    "properties": {
+                                        "val": {
+                                            "type": "number"
+                                        },
+                                        "unit": {
+                                            "type": "string",
+                                            "description": "% survival, norm. fluorescence."
+                                        },
+                                        "assay": {
+                                            "type": "string",
+                                            "description": "e.g. PrestoBlue."
+                                        }
+                                    },
+                                    "required": [
+                                        "val"
+                                    ]
+                                },
+                                "perm": {
+                                    "type": "number",
+                                    "description": "Permeability coeff (cm/s)."
+                                },
+                                "tox_num": {
+                                    "type": "object",
+                                    "description": "Quantitative toxicity metrics.",
+                                    "properties": {
+                                        "val": {
+                                            "type": "number"
+                                        },
+                                        "metric": {
+                                            "type": "string",
+                                            "description": "e.g. LC50."
+                                        }
+                                    }
+                                },
+                                "tox_desc": {
+                                    "type": "string",
+                                    "description": "Qualitative effects (e.g. 'Neutralization')."
+                                },
+                                "additional_notes": {
+                                    "type": "string",
+                                    "description": "Any additional information about this experiment that doesn't fit in other fields."
+                                }
+                            },
+                            "required": [
+                                "conds",
+                                "viab"
+                            ]
+                        }
+                    }
+                },
+                "required": [
+                    "mix_name",
+                    "comps",
+                    "exps"
+                ]
+            }
+        },
+        "additional_notes": {
+            "type": "string",
+            "description": "Any additional information from the paper that doesn't fit in the structured fields above, such as methodology details, limitations, or other relevant observations."
+        }
+    },
+    "required": [
+        "cpa_compositions"
+    ]
+}

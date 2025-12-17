@@ -1,0 +1,16 @@
+[project]
+name = "papers2dataset"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "edison-client>=0.8.4",
+    "requests>=2.31.0",
+    "ipywidgets>=8.1.8",
+    "jupyterlab>=4.5.1",
+    "openai>=2.13.0",
+    "python-dotenv>=1.2.1",
+    "litellm>=1.55.0",
+    "httpx>=0.28.1",
+]

@@ -1,0 +1,14 @@
+I need to create a dataset for a toxicity prediction specifically for Cryoprotectant Agents (CPAs). 
+
+For the following paper, extract and output ALL mentioned CPA mixtures with their experimental data. 
+
+Important guidelines:
+1. Extract ALL CPA compositions mentioned in the paper
+2. For each composition, include all chemical components with their properties (name, SMILES, concentrations)
+3. Include all experimental conditions (temperature, exposure time, cell type)
+4. Include all viability/toxicity measurements
+5. If SMILES structures are not provided in the paper, use your knowledge to provide the correct SMILES for common CPAs
+6. Include any quantitative toxicity metrics (LC50, EC50, etc.) if available
+7. Add relevant notes for any additional context
+
+Please analyze the attached PDF and extract the data according to the schema.
