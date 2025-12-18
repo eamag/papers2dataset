@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional
 import httpx
-from .models import Paper
+from loguru import logger
 
 
 # Base URL for OpenAlex API
@@ -21,7 +21,7 @@ def _get_email() -> str:
     """Get email for polite pool from environment."""
     email = os.environ.get("OPENALEX_EMAIL", "")
     if not email:
-        print("Warning: OPENALEX_EMAIL not set. Rate limited to 1 req/sec.")
+        logger.debug("Warning: OPENALEX_EMAIL not set. Rate limited to 1 req/sec.")
         global _min_request_interval
         _min_request_interval = 1.0
     return email
@@ -62,15 +62,17 @@ def _make_request(
             elif response.status_code == 429:
                 # Rate limited - back off
                 wait_time = 2**attempt
-                print(f"Rate limited, waiting {wait_time}s...")
+                logger.debug(f"Rate limited, waiting {wait_time}s...")
                 time.sleep(wait_time)
             elif response.status_code >= 500:
                 # Server error - retry with backoff
                 wait_time = 2**attempt
-                print(f"Server error {response.status_code}, waiting {wait_time}s...")
+                logger.debug(
+                    f"Server error {response.status_code}, waiting {wait_time}s..."
+                )
                 time.sleep(wait_time)
             else:
-                print(
+                logger.debug(
                     f"Unexpected status {response.status_code}: {response.text[:200]}"
                 )
                 return None
@@ -78,13 +80,13 @@ def _make_request(
         except httpx.TimeoutException:
             if attempt < max_retries - 1:
                 wait_time = 2**attempt
-                print(f"Timeout, waiting {wait_time}s...")
+                logger.debug(f"Timeout, waiting {wait_time}s...")
                 time.sleep(wait_time)
         except httpx.HTTPError as e:
-            print(f"Request error: {e}")
+            logger.debug(f"Request error: {e}")
             return None
 
-    print(f"Failed after {max_retries} retries")
+    logger.debug(f"Failed after {max_retries} retries")
     return None
 
 
@@ -219,30 +221,6 @@ def fetch_related_works(openalex_id: str, max_results: int = 50) -> list[dict]:
     return results
 
 
-def work_to_paper(work: dict, source: str = "openalex", depth: int = 0) -> Paper:
-    """Convert OpenAlex work dict to Paper object."""
-
-    # Extract DOI
-    doi = work.get("doi")
-    if doi and "doi.org/" in doi:
-        doi = doi.split("doi.org/")[-1]
-
-    # Get OpenAlex ID
-    openalex_id = work.get("id", "")
-    if "/" in openalex_id:
-        openalex_id = openalex_id.split("/")[-1]
-
-    return Paper(
-        doi=doi,
-        openalex_id=openalex_id,
-        title=work.get("title", "")[:200] if work.get("title") else None,
-        source=source,
-        depth=depth,
-        publication_year=work.get("publication_year"),
-        cited_by_count=work.get("cited_by_count"),
-    )
-
-
 def search_works(query: str, max_results: int = 25) -> list[dict]:
     url = f"{BASE_URL}/works"
     params = {
@@ -282,13 +260,13 @@ def _try_download_pdf(url: str, pdf_path: Path) -> bool:
                             f.write(chunk)
                     return True
                 else:
-                    print(f"Not a PDF: {url} (Content-Type: {content_type})")
+                    logger.debug(f"Not a PDF: {url} (Content-Type: {content_type})")
             else:
-                print(
+                logger.debug(
                     f"Failed to download PDF: {url}, status code: {response.status_code}"
                 )
     except Exception as e:
-        print(f"Error downloading PDF: {e} {url}")
+        logger.debug(f"Error downloading PDF: {e} {url}")
         pass
     return False
 
@@ -306,9 +284,11 @@ def _get_biorxiv_pdf_url(doi: str) -> Optional[str]:
                 biorxiv_doi = latest.get("doi", doi)
                 return f"https://www.biorxiv.org/content/{biorxiv_doi}.full.pdf"
         else:
-            print(f"bioRxiv API returned status code {response.status_code} for {doi}")
+            logger.debug(
+                f"bioRxiv API returned status code {response.status_code} for {doi}"
+            )
     except Exception as e:
-        print(f"Error getting bioRxiv PDF URL: {e} {doi}")
+        logger.debug(f"Error getting bioRxiv PDF URL: {e} {doi}")
     return None
 
 
@@ -330,9 +310,11 @@ def _get_pmc_pdf_url(pmcid: str) -> Optional[str]:
                 ftp_url = match.group(1)
                 return ftp_url.replace("ftp://", "https://")
         else:
-            print(f"PMC API returned status code {response.status_code} for {pmcid}")
+            logger.debug(
+                f"PMC API returned status code {response.status_code} for {pmcid}"
+            )
     except Exception as e:
-        print(f"Error getting PMC PDF URL: {e} {pmcid}")
+        logger.debug(f"Error getting PMC PDF URL: {e} {pmcid}")
     return None
 
 
@@ -350,11 +332,11 @@ def _get_unpaywall_pdf_url(doi: str) -> Optional[str]:
                 if loc.get("url_for_pdf"):
                     return loc["url_for_pdf"]
         else:
-            print(
+            logger.debug(
                 f"Unpaywall API returned status code {response.status_code} for {doi}"
             )
     except Exception as e:
-        print(f"Error getting Unpaywall PDF URL: {e} {doi}")
+        logger.debug(f"Error getting Unpaywall PDF URL: {e} {doi}")
     return None
 
 
@@ -389,7 +371,7 @@ def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
     for loc in work.get("locations", []):
         if loc.get("pdf_url"):
             pdf_urls.append(loc["pdf_url"])
-        landing = loc.get("landing_page_url", "")
+        landing = loc.get("landing_page_url") or ""
         if "pmc/articles" in landing:
             pmc_id = landing.split("/")[-1]
             pdf_urls.append(
@@ -402,37 +384,37 @@ def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
 
     for url in pdf_urls:
         if _try_download_pdf(url, pdf_path):
-            print(f"Downloaded: {pdf_path}")
+            logger.debug(f"Downloaded: {pdf_path}")
             return pdf_path
         else:
-            print(f"Downloading {url} failed")
+            logger.debug(f"Downloading {url} failed")
 
     if doi_bare and doi_bare.startswith("10.1101/"):
         biorxiv_url = _get_biorxiv_pdf_url(doi_bare)
         if biorxiv_url:
             if _try_download_pdf(biorxiv_url, pdf_path):
-                print(f"Downloaded via bioRxiv API: {pdf_path}")
+                logger.debug(f"Downloaded via bioRxiv API: {pdf_path}")
                 return pdf_path
             else:
-                print(f"Downloading {biorxiv_url} failed")
+                logger.debug(f"Downloading {biorxiv_url} failed")
 
     if pmcid:
         pmc_url = _get_pmc_pdf_url(pmcid)
         if pmc_url:
             if _try_download_pdf(pmc_url, pdf_path):
-                print(f"Downloaded via PMC OA API: {pdf_path}")
+                logger.debug(f"Downloaded via PMC OA API: {pdf_path}")
                 return pdf_path
             else:
-                print(f"Downloading {pmc_url} failed")
+                logger.debug(f"Downloading {pmc_url} failed")
 
     if doi_bare:
         unpaywall_url = _get_unpaywall_pdf_url(doi_bare)
         if unpaywall_url:
             if _try_download_pdf(unpaywall_url, pdf_path):
-                print(f"Downloaded via Unpaywall: {pdf_path}")
+                logger.debug(f"Downloaded via Unpaywall: {pdf_path}")
                 return pdf_path
             else:
-                print(f"Downloading {unpaywall_url} failed")
+                logger.debug(f"Downloading {unpaywall_url} failed")
 
-    print(f"Could not download PDF for {openalex_id}")
+    logger.debug(f"Could not download PDF for {openalex_id}")
     return None

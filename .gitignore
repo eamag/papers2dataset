@@ -12,3 +12,4 @@ wheels/
 .env
 pdfs/
 data/
+bfs_queue.json

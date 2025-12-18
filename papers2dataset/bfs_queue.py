@@ -1,4 +1,5 @@
 import json
+import threading
 from collections import deque
 from pathlib import Path
 from typing import Optional
@@ -7,6 +8,7 @@ from typing import Optional
 class BFSQueue:
     def __init__(self, path: Path = Path("bfs_queue.json")):
         self.path = path
+        self.lock = threading.Lock()
         self.queue: deque[str] = deque()  # paper IDs in BFS order
         self.processed: set[str] = set()
         self.skipped: dict[str, str] = {}
@@ -34,66 +36,83 @@ class BFSQueue:
             json.dump(data, f, indent=2)
 
     def add(self, paper_id: str) -> bool:
-        if not paper_id or paper_id in self.processed or paper_id in self.skipped:
+        if not paper_id:
             return False
-        if paper_id in self.queue:
-            return False
+        with self.lock:
+            if paper_id in self.processed or paper_id in self.skipped:
+                return False
+            if paper_id in self.queue:
+                return False
 
-        self.queue.append(paper_id)
-        self._save()
-        return True
+            self.queue.append(paper_id)
+            self._save()
+            return True
 
     def add_many(self, paper_ids: list[str]) -> int:
-        existing = set(self.queue) | self.processed | self.skipped
-        added = 0
-        for pid in paper_ids:
-            if pid and pid not in existing:
-                self.queue.append(pid)
-                existing.add(pid)
-                added += 1
-        if added > 0:
-            self._save()
-        return added
+        with self.lock:
+            existing = (
+                set(self.queue)
+                | self.processed
+                | set(self.skipped.keys())
+                | set(self.failed.keys())
+            )
+            added = 0
+            for pid in paper_ids:
+                if pid and pid not in existing:
+                    self.queue.append(pid)
+                    existing.add(pid)
+                    added += 1
+            if added > 0:
+                self._save()
+            return added
 
     def pop(self) -> Optional[str]:
-        while self.queue:
-            pid = self.queue.popleft()
-            if pid not in self.processed and pid not in self.skipped:
-                self.in_progress.add(pid)
-                self._save()
-                return pid
-        return None
+        with self.lock:
+            while self.queue:
+                pid = self.queue.popleft()
+                if pid not in self.processed and pid not in self.skipped:
+                    self.in_progress.add(pid)
+                    self._save()
+                    return pid
+            return None
 
     def peek(self) -> Optional[str]:
-        for pid in self.queue:
-            if pid not in self.processed and pid not in self.skipped:
-                return pid
-        return None
+        with self.lock:
+            for pid in self.queue:
+                if pid not in self.processed and pid not in self.skipped:
+                    return pid
+            return None
 
     def mark_processed(self, paper_id: str):
-        self.processed.add(paper_id)
-        self.in_progress.remove(paper_id) if paper_id in self.in_progress else None
-        self._save()
+        with self.lock:
+            self.processed.add(paper_id)
+            self.in_progress.discard(paper_id)
+            self._save()
 
     def mark_skipped(self, paper_id: str, reason: str):
-        self.skipped[paper_id] = reason
-        self.in_progress.remove(paper_id) if paper_id in self.in_progress else None
-        self._save()
+        with self.lock:
+            self.skipped[paper_id] = reason
+            self.in_progress.discard(paper_id)
+            self._save()
 
     def mark_failed(self, paper_id: str, reason: str):
-        self.failed[paper_id] = reason
-        self.in_progress.remove(paper_id) if paper_id in self.in_progress else None
-        self._save()
+        with self.lock:
+            self.failed[paper_id] = reason
+            self.in_progress.discard(paper_id)
+            self._save()
 
     def __len__(self) -> int:
-        return len(self.queue) + len(self.processed) + len(self.skipped)
+        with self.lock:
+            return len(self.queue) + len(self.processed) + len(self.skipped)
 
     def __contains__(self, paper_id: str) -> bool:
-        return (
-            paper_id in self.queue
-            or paper_id in self.processed
-            or paper_id in self.skipped
-        )
+        with self.lock:
+            return (
+                paper_id in self.queue
+                or paper_id in self.processed
+                or paper_id in self.skipped
+            )
 
     def __repr__(self) -> str:
-        return f"In Progress: {list(self.in_progress)}\nNext 10 in Queue: {list(self.queue)[:10]}\nProcessed: {list(self.processed)}\nSkipped: {list(self.skipped)}"
+        with self.lock:
+            return f"In Progress: {list(self.in_progress)}\nNext 10 in Queue: {list(self.queue)[:10]}\nProcessed: {list(self.processed)}\nSkipped: {list(self.skipped)}"

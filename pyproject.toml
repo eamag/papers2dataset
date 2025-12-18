@@ -13,4 +13,6 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "litellm>=1.55.0",
     "httpx>=0.28.1",
+    "pypdf>=6.4.2",
+    "loguru>=0.7.3",
 ]

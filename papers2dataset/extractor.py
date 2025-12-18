@@ -1,13 +1,16 @@
 import base64
 import json
-import sys
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
+from pypdf import PdfReader
 
 import litellm
 from dotenv import load_dotenv
 
 load_dotenv()
+litellm.suppress_debug_info = True
 
 
 def list_project_files(project_dir):
@@ -39,6 +42,10 @@ def extract_cpa_from_pdf(
     if res_file.exists():
         with open(res_file, "r") as f:
             return json.load(f)
+
+    if len(PdfReader(pdf_path).pages) == 0:
+        return {"cpa_compositions": [], "error": "pdf no pages"}
+
     pdf_bytes = pdf_path.read_bytes()
     encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
 
@@ -96,7 +103,6 @@ def check_paper_relevance(
     You have the title and abstract of a paper. Based on this, guess if full paper mentions specific Cryoprotectant Agent (CPA) mixtures or compositions and experimental data for them. 
     We are looking for papers that define chemical mixtures (e.g. DMSO + Glycerol) and test them.
     """
-    print(prompt)
     response = litellm.completion(
         model=model,
         messages=[{"role": "user", "content": prompt}],
