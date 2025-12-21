@@ -10,10 +10,7 @@ from dotenv import load_dotenv
 from huggingface_hub import HfApi
 
 load_dotenv()
-
-
-DATA_DIR = Path(__file__).parent / "data"
-OUTPUT_CSV = Path(__file__).parent / "cpas.csv"
+OUTPUT_CSV_NAME = "combined.csv"
 
 
 def _norm_val(val: Any) -> Any:
@@ -47,7 +44,7 @@ def _pick_primary_container(data: Any) -> tuple[list[dict[str, Any]], dict[str, 
     return [], {}
 
 
-def export_csv() -> None:
+def export_csv(data_dir: Path) -> None:
     headers: list[str] = ["source"]
     rows: list[dict[str, Any]] = []
 
@@ -56,12 +53,11 @@ def export_csv() -> None:
             if key not in headers:
                 headers.append(key)
 
-    for path in sorted(DATA_DIR.glob("*.json")):
+    for path in sorted(data_dir.glob("*.json")):
         data = json.loads(path.read_text())
         primary_records, outer_ctx = _pick_primary_container(data)
 
         if not primary_records:
-            # Treat whole payload as a single record.
             primary_records = [data] if isinstance(data, dict) else []
             outer_ctx = {}
 
@@ -78,36 +74,39 @@ def export_csv() -> None:
             add_headers_from_row(row)
             rows.append(row)
 
-    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with OUTPUT_CSV.open("w", newline="") as f:
+    with (data_dir / OUTPUT_CSV_NAME).open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
 
 
 def publish_to_hf(
+    data_dir: Path,
     repo_id: str,
     *,
     token: str | None = None,
     private: bool = True,
     tags: Iterable[str] | None = None,
 ) -> None:
-    export_csv()
+    export_csv(data_dir)
 
     hf_token = token or os.getenv("HF_TOKEN")
     if not hf_token:
-        raise ValueError("Hugging Face token required: pass token= or set HF_TOKEN env var")
+        raise ValueError(
+            "Hugging Face token required: pass token= or set HF_TOKEN env var"
+        )
     api = HfApi(token=hf_token)
-    
-    # Get username and construct full repo_id
+
     user_info = api.whoami()
     username = user_info["name"]
     full_repo_id = f"{username}/{repo_id}"
-    
-    repo_url = api.create_repo(repo_id=full_repo_id, repo_type="dataset", private=private, exist_ok=True)
+
+    repo_url = api.create_repo(
+        repo_id=full_repo_id, repo_type="dataset", private=private, exist_ok=True
+    )
 
     tag_list = list(tags or [])
-    base_tags = ["cryopreservation", "tabular", "papers2dataset"]
+    base_tags = ["tabular", "papers2dataset"]
     for t in base_tags:
         if t not in tag_list:
             tag_list.append(t)
@@ -133,8 +132,8 @@ Auto-generated CSV using papers2dataset tool.
 """
 
     api.upload_file(
-        path_or_fileobj=OUTPUT_CSV,
-        path_in_repo=OUTPUT_CSV.name,
+        path_or_fileobj=(data_dir / OUTPUT_CSV_NAME),
+        path_in_repo=OUTPUT_CSV_NAME,
         repo_id=full_repo_id,
         repo_type="dataset",
     )
@@ -145,8 +144,4 @@ Auto-generated CSV using papers2dataset tool.
         repo_id=full_repo_id,
         repo_type="dataset",
     )
-
-
-if __name__ == "__main__":
-    export_csv()
-    publish_to_hf("cryoprotective-agents", tags=["cryoprotective-agents", "cryonics", "biology"])
+    return repo_url

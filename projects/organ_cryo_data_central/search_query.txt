@@ -1,0 +1,1 @@
+(organ cryopreservation OR vitrification of organs OR isochoric preservation OR kidney cryopreservation OR liver cryopreservation) AND (dataset OR raw data OR supplementary data) AND NOT HuggingFace -review article

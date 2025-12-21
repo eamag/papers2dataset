@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "paper_title": {
+      "type": "string",
+      "description": "The full title of the academic paper."
+    },
+    "dataset_name": {
+      "type": "string",
+      "description": "The name of the dataset as mentioned in the paper."
+    },
+    "dataset_url": {
+      "type": "string",
+      "description": "The direct URL link where the dataset is hosted, excluding HuggingFace links."
+    },
+    "hosting_platform": {
+      "type": "string",
+      "description": "The name of the platform hosting the data (e.g., Zenodo, Figshare, Dryad, Institutional Repository)."
+    },
+    "organ_type": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The specific organs or tissues involved in the study (e.g., kidney, liver, heart)."
+    },
+    "cryopreservation_method": {
+      "type": "string",
+      "description": "The technique used, such as vitrification, slow freezing, or isochoric freezing."
+    },
+    "data_modality": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The type of data provided (e.g., micro-CT scans, thermal properties, histological images, viability assays)."
+    },
+    "dataset_size": {
+      "type": "string",
+      "description": "The quantitative size of the dataset (e.g., number of samples, gigabytes)."
+    },
+    "access_protocol": {
+      "type": "string",
+      "enum": [
+        "open",
+        "restricted",
+        "request_based"
+      ],
+      "description": "The method required to access the data."
+    },
+    "year_of_publication": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "paper_title",
+    "dataset_url",
+    "organ_type",
+    "cryopreservation_method"
+  ]
+}
