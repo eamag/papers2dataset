@@ -1,18 +1,15 @@
-"""OpenAlex API client for paper metadata and citation graph."""
-
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urljoin
 import httpx
 from loguru import logger
+from curl_cffi.requests import AsyncSession
 
-
-# Base URL for OpenAlex API
 BASE_URL = "https://api.openalex.org"
-
-# Rate limiting config (polite pool with email = 10 req/sec)
 _last_request_time = 0
 _min_request_interval = 0.1  # 10 req/sec
 
@@ -231,43 +228,103 @@ def search_works(query: str, max_results: int = 25) -> list[dict]:
     return _make_request(url, params)
 
 
-def _try_download_pdf(url: str, pdf_path: Path) -> bool:
-    from urllib.parse import urlparse
-
-    domain = urlparse(url).netloc
-    headers = {
+async def _try_download_pdf(url: str, pdf_path: Path) -> bool:
+    # Base headers - Referer will be updated based on URL domain
+    base_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/pdf,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": f"https://{domain}/",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "cross-site",
     }
+    
+    # Set appropriate Referer based on URL domain
+    if "ncbi.nlm.nih.gov" in url or "pmc.ncbi.nlm.nih.gov" in url:
+        base_headers["Referer"] = "https://www.ncbi.nlm.nih.gov/"
+    else:
+        base_headers["Referer"] = "https://openalex.org/"
+
     _rate_limit()
+
     try:
-        with httpx.stream(
-            "GET", url, timeout=60.0, headers=headers, follow_redirects=True
-        ) as response:
+        async with AsyncSession() as session:
+            # For PMC URLs, first visit the article page to establish session/cookies
+            # This helps with PDF downloads that require session state
+            if "pmc/articles" in url:
+                # Extract article ID and visit the landing page first
+                match = re.search(r'/pmc/articles/(PMC\d+)', url)
+                if match:
+                    pmc_id = match.group(1)
+                    landing_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/"
+                    try:
+                        # Visit landing page to establish session (cookies preserved in session)
+                        await session.get(
+                            landing_url,
+                            headers=base_headers,
+                            timeout=30,
+                            impersonate="chrome110",
+                            allow_redirects=True,
+                        )
+                        logger.debug(f"Established session via landing page: {landing_url}")
+                    except Exception as e:
+                        logger.debug(f"Could not visit landing page, continuing anyway: {e}")
+            
+            # Use allow_redirects=True to let curl_cffi handle redirects and preserve cookies
+            # This is important for PMC URLs that require session state
+            response = await session.get(
+                url,
+                headers=base_headers,
+                timeout=30,
+                impersonate="chrome110",
+                allow_redirects=True,  # Let curl_cffi handle redirects and cookies
+                stream=True,
+            )
+            
+            # Check the final URL after redirects for debugging
+            final_url = getattr(response, "url", url)
+            if final_url != url:
+                logger.debug(f"Resolved redirect: {url} -> {final_url}")
+            
             if response.status_code == 200:
-                content_type = response.headers.get("Content-Type", "").lower()
-                if "pdf" in content_type or url.lower().endswith(".pdf"):
-                    with open(pdf_path, "wb") as f:
-                        for chunk in response.iter_bytes(chunk_size=8192):
-                            f.write(chunk)
-                    return True
-                else:
-                    logger.debug(f"Not a PDF: {url} (Content-Type: {content_type})")
+                # Download the file - don't check Content-Type as redirects can be misleading
+                with open(pdf_path, "wb") as f:
+                    async for chunk in response.aiter_content(chunk_size=8192):
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+
+                # Validate PDF magic bytes (the definitive check)
+                with open(pdf_path, "rb") as f:
+                    first_bytes = f.read(4)
+                    if first_bytes != b"%PDF":
+                        # Log first few bytes for debugging
+                        f.seek(0)
+                        preview = f.read(100).decode("utf-8", errors="ignore")
+                        logger.debug(
+                            f"Downloaded file is not a valid PDF (magic bytes: {first_bytes!r}, preview: {preview[:50]}) for {final_url}"
+                        )
+                        pdf_path.unlink()  # Delete invalid file
+                        return False
+
+                # Log Content-Type for debugging, but don't reject based on it
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type and "application/pdf" not in content_type:
+                    logger.debug(
+                        f"Note: URL returned Content-Type {content_type} but file is valid PDF (magic bytes check passed) for {final_url}"
+                    )
+
+                return True
             else:
                 logger.debug(
-                    f"Failed to download PDF: {url}, status code: {response.status_code}"
+                    f"Failed to download PDF: {final_url}, status code: {response.status_code}"
                 )
+                return False
+
     except Exception as e:
         logger.debug(f"Error downloading PDF: {e} {url}")
+        # Clean up partial file if it exists
+        if pdf_path.exists():
+            pdf_path.unlink()
         pass
+
     return False
 
 
@@ -340,7 +397,7 @@ def _get_unpaywall_pdf_url(doi: str) -> Optional[str]:
     return None
 
 
-def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
+async def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
     openalex_id = (
         work.get("id", "").split("/")[-1]
         if "/" in work.get("id", "")
@@ -381,9 +438,9 @@ def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
                 pmcid = pmc_id
 
     pdf_urls = list(dict.fromkeys(pdf_urls))
-
+    logger.debug(f"found pdf urls {pdf_urls}")
     for url in pdf_urls:
-        if _try_download_pdf(url, pdf_path):
+        if await _try_download_pdf(url, pdf_path):
             logger.debug(f"Downloaded: {pdf_path}")
             return pdf_path
         else:
@@ -392,7 +449,7 @@ def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
     if doi_bare and doi_bare.startswith("10.1101/"):
         biorxiv_url = _get_biorxiv_pdf_url(doi_bare)
         if biorxiv_url:
-            if _try_download_pdf(biorxiv_url, pdf_path):
+            if await _try_download_pdf(biorxiv_url, pdf_path):
                 logger.debug(f"Downloaded via bioRxiv API: {pdf_path}")
                 return pdf_path
             else:
@@ -401,7 +458,7 @@ def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
     if pmcid:
         pmc_url = _get_pmc_pdf_url(pmcid)
         if pmc_url:
-            if _try_download_pdf(pmc_url, pdf_path):
+            if await _try_download_pdf(pmc_url, pdf_path):
                 logger.debug(f"Downloaded via PMC OA API: {pdf_path}")
                 return pdf_path
             else:
@@ -410,7 +467,7 @@ def fetch_pdf(work: dict, project_dir: Path) -> Optional[Path]:
     if doi_bare:
         unpaywall_url = _get_unpaywall_pdf_url(doi_bare)
         if unpaywall_url:
-            if _try_download_pdf(unpaywall_url, pdf_path):
+            if await _try_download_pdf(unpaywall_url, pdf_path):
                 logger.debug(f"Downloaded via Unpaywall: {pdf_path}")
                 return pdf_path
             else:

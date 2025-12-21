@@ -1,123 +1,42 @@
-import base64
-import json
-from pathlib import Path
-from typing import Any
-
+import asyncio
+from papers2dataset.openalex_client import fetch_work, fetch_pdf, fetch_cited_works, fetch_citing_works, fetch_related_works
+from papers2dataset.models import extract_cpa_from_pdf, check_paper_relevance
+from papers2dataset.bfs_queue import BFSQueue
 from loguru import logger
-from pypdf import PdfReader
 
-import litellm
-from dotenv import load_dotenv
+async def process_one_paper(pid, q: BFSQueue, project_dir, semaphore):
+    async with semaphore:
+        paper = await asyncio.to_thread(fetch_work, pid)
+        if not paper:
+            logger.warning(f"Failed to fetch metadata for {pid}")
+            q.mark_failed(pid, "metadata_fetch_failed")
+            return
 
-load_dotenv()
-litellm.suppress_debug_info = True
+        pdf_path = await fetch_pdf(paper, project_dir)
+        if pdf_path is None:
+            logger.warning(f"Failed to download PDF for {paper['id']}")
+            q.mark_failed(pid, "no_pdf")
+            return
 
+        res = await check_paper_relevance(paper)
+        if not res['has_cpa_compositions']:
+            logger.warning(f"Paper {paper.get('id')} is not relevant because {res.get('reason')}")
+            q.mark_skipped(pid, res.get('reason'))
+            return
 
-def list_project_files(project_dir):
-    schema_path = project_dir / "schema.json"
-    prompt_path = project_dir / "prompt.txt"
-    return schema_path, prompt_path
+        resp = await extract_cpa_from_pdf(pdf_path, project_dir)
+        if resp.get("error"):
+            logger.warning(f"Failed to extract CPA from PDF for {paper['id']}")
+            q.mark_failed(pid, resp['error'])
+            return
 
+        related_task = asyncio.to_thread(fetch_related_works, pid)
+        cited_task = asyncio.to_thread(fetch_cited_works, pid)
+        citing_task = asyncio.to_thread(fetch_citing_works, pid)
+        
+        related, cited, citing = await asyncio.gather(related_task, cited_task, citing_task)
 
-def load_assets(project_dir):
-    schema_path, prompt_path = list_project_files(project_dir)
-
-    with open(schema_path, "r") as f:
-        schema = json.load(f)
-
-    with open(prompt_path, "r") as f:
-        prompt = f.read().strip()
-
-    return schema, prompt
-
-
-def extract_cpa_from_pdf(
-    pdf_path: Path,
-    project_dir: Path,
-) -> dict[str, Any]:
-    cpa_schema, extraction_prompt = load_assets(project_dir)
-    data_dir = project_dir / "data"
-    data_dir.mkdir(exist_ok=True)
-    res_file = data_dir / f"{pdf_path.stem}.json"
-    if res_file.exists():
-        with open(res_file, "r") as f:
-            return json.load(f)
-
-    if len(PdfReader(pdf_path).pages) == 0:
-        return {"cpa_compositions": [], "error": "pdf no pages"}
-
-    pdf_bytes = pdf_path.read_bytes()
-    encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": extraction_prompt},
-                {
-                    "type": "file",
-                    "file": {
-                        "file_data": f"data:application/pdf;base64,{encoded_pdf}",
-                    },
-                },
-            ],
-        }
-    ]
-
-    response = litellm.completion(
-        model="gemini/gemini-3-flash-preview",
-        messages=messages,
-        response_format={
-            "type": "json_object",
-            "response_schema": cpa_schema,
-        },
-    )
-
-    content = response.choices[0].message.content
-    result = json.loads(content)
-
-    with open(data_dir / f"{pdf_path.stem}.json", "w") as f:
-        json.dump(result, f, indent=2)
-    return result
-
-
-def check_paper_relevance(
-    paper: dict[str, Any],
-    model: str = "gemini/gemini-flash-lite-latest",
-) -> dict[str, Any]:
-    title = paper.get("title", "")
-    abstract = ""
-    if paper.get("abstract_inverted_index"):
-        index = paper["abstract_inverted_index"]
-        word_list = []
-        for word, positions in index.items():
-            for pos in positions:
-                word_list.append((pos, word))
-        word_list.sort()
-        abstract = " ".join([w[1] for w in word_list])
-
-    prompt = f"""
-    Title: {title}
-    Abstract: {abstract}
-    
-    You have the title and abstract of a paper. Based on this, guess if full paper mentions specific Cryoprotectant Agent (CPA) mixtures or compositions and experimental data for them. 
-    We are looking for papers that define chemical mixtures (e.g. DMSO + Glycerol) and test them.
-    """
-    response = litellm.completion(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        response_format={
-            "type": "json_object",
-            "response_schema": {
-                "type": "object",
-                "properties": {
-                    "has_cpa_compositions": {"type": "boolean"},
-                    "reason": {"type": "string"},
-                },
-                "required": ["has_cpa_compositions"],
-            },
-        },
-    )
-
-    content = response.choices[0].message.content
-    return json.loads(content)
+        new_ids = [x.get("id", "").split('/')[-1] for x in related + cited + citing]
+        q.add_many(new_ids)
+        q.mark_processed(pid)
+        logger.success(f"Processed {paper['id']}")

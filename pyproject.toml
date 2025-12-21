@@ -15,4 +15,5 @@ dependencies = [
     "httpx>=0.28.1",
     "pypdf>=6.4.2",
     "loguru>=0.7.3",
+    "curl-cffi>=0.14.0",
 ]
