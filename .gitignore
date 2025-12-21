@@ -13,3 +13,4 @@ wheels/
 pdfs/
 data/
 bfs_queue.json
+*.csv

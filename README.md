@@ -8,6 +8,6 @@
 
 ## TODO
 
-- [ ] Combine jsons and clean up duplicates
+- [ ] Clean up duplicates, see <https://news.ycombinator.com/item?id=45877576>
 - [ ] Go over all failed to download pdfs and add appropriate API calls
 - [ ] Generalize to any dataset

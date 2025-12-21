@@ -20,14 +20,16 @@ async def process_one_paper(pid, q: BFSQueue, project_dir, semaphore):
 
         res = await check_paper_relevance(paper)
         if not res['has_cpa_compositions']:
-            logger.warning(f"Paper {paper.get('id')} is not relevant because {res.get('reason')}")
-            q.mark_skipped(pid, res.get('reason'))
+            reason_skipped = f"Paper {paper.get('id')} is not relevant because {res.get('reason')}, model used: {res.get('model_used')}"
+            logger.warning(reason_skipped)
+            q.mark_skipped(pid, reason_skipped)
             return
 
         resp = await extract_cpa_from_pdf(pdf_path, project_dir)
         if resp.get("error"):
-            logger.warning(f"Failed to extract CPA from PDF for {paper['id']}")
-            q.mark_failed(pid, resp['error'])
+            error_text = f"Failed to extract CPA from PDF for {paper['id']}, error: {resp['error']}, model used: {resp.get('model_used')}"
+            logger.warning(error_text)
+            q.mark_failed(pid, error_text)
             return
 
         related_task = asyncio.to_thread(fetch_related_works, pid)
