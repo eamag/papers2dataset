@@ -2,6 +2,33 @@
 
 AlphaFold exists because PDB exists, but most of the time the dataset you need is not there. Some data only exists as text in papers, and it takes too long to manually search and extract one data point at a time. This project helps to automate data extraction from open access papers, using AI agents to walk the citation graph and creating a CSV with data and sources.
 
+## Agent Skill (Claude, Codex, etc.)
+
+This tool can be installed as an Agent Skill, compatible with **Claude Code**, **OpenAI Codex**, and other agents supporting the Agent Skills standard.
+
+### Installation
+
+```bash
+curl -sSL https://raw.githubusercontent.com/eamag/papers2dataset/main/install.py | python3
+```
+
+- Installs to `~/.claude/skills/papers2dataset` (default)
+- Installs to `~/.codex/skills/papers2dataset` (if detected)
+- Sets up a dedicated `uv` virtual environment for isolation.
+
+To install to a specific location (e.g. for VS Code or Cursor):
+
+```bash
+python3 install.py --target-dir ~/.my-agent/skills
+```
+
+### Features
+
+- **Subagent Pattern**: Uses specialized agents for search, extraction, and graph traversal
+- **Paper Search**: Finds relevant papers on OpenAlex
+- **PDF Extraction**: Downloads and extracts structured data using thinking models
+- **Citation Graph**: Recursively finds related papers
+
 ## Getting started
 
 - Clone the repo `git clone https://github.com/eamag/papers2dataset.git`
@@ -23,7 +50,6 @@ AlphaFold exists because PDB exists, but most of the time the dataset you need i
 
 - [ ] Clean up duplicates, see <https://news.ycombinator.com/item?id=45877576>
 - [ ] Go over all failed to download pdfs and add appropriate API calls. Comply with robots.txt (are AI agents robots?)
-- [ ] Create ClaudeCode or Codex skill out of this
 - [ ] Use <https://github.com/blackadad/paper-scraper> and <https://github.com/allenai/asta-paper-finder> (and better <https://asta.allen.ai/> and <https://platform.edisonscientific.com/> when they start providing references in the api) to screen papers
 - [ ] Something better than BFS for scheduling papers, maybe semantic search?
 - [ ] Record a terminal GIF

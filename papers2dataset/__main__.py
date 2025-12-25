@@ -168,7 +168,6 @@ def vibe(description: str):
         repo_url = publish_to_hf(data_dir, project_name)
         logger.success(f"Published to HuggingFace at {repo_url}")
 
-
     asyncio.run(run_vibe_async())
 
 
