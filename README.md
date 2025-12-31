@@ -1,6 +1,7 @@
 # AI agents that read papers and create datasets
 
 AlphaFold exists because PDB exists, but most of the time the dataset you need is not there. Some data only exists as text in papers, and it takes too long to manually search and extract one data point at a time. This project helps to automate data extraction from open access papers, using AI agents to walk the citation graph and creating a CSV with data and sources.
+More background: <https://x.com/EamagAI/status/2002822962937041153>
 
 ## Agent Skill (Claude, Codex, etc.)
 
